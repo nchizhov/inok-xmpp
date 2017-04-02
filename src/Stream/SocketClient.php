@@ -47,168 +47,176 @@ use Fabiang\Xmpp\Util\ErrorHandler;
 class SocketClient
 {
 
-    const BUFFER_LENGTH = 4096;
+  const BUFFER_LENGTH = 4096;
 
-    /**
-     * Resource.
-     *
-     * @var resource
-     */
-    protected $resource;
+  /**
+   * Resource.
+   *
+   * @var resource
+   */
+  protected $resource;
 
-    /**
-     * Address.
-     *
-     * @var string
-     */
-    protected $address;
+  /**
+   * Address.
+   *
+   * @var resource
+   */
+  protected $address;
 
-    /**
-     * Constructor takes address as argument.
-     *
-     * @param string $address
-     */
-    public function __construct($address)
-    {
-        $this->address = $address;
+  /**
+   * To address.
+   *
+   * @var string
+   */
+  private $to;
+
+  /**
+   * Socket context.
+   *
+   * @var string
+   */
+  private $context;
+
+  /**
+   * Constructor takes address as argument.
+   *
+   * @param string $address
+   */
+  public function __construct($address, $to) {
+    $this->address = $address;
+    $this->to = $to;
+  }
+
+  /**
+   * Connect.
+   *
+   * @param integer $timeout Timeout for connection
+   * @param boolean $persistent Persitent connection
+   * @return void
+   */
+  public function connect($timeout = 30, $persistent = false) {
+    if (true === $persistent) {
+      $flags = STREAM_CLIENT_CONNECT | STREAM_CLIENT_PERSISTENT;
+    } else {
+      $flags = STREAM_CLIENT_CONNECT;
     }
 
-    /**
-     * Connect.
-     *
-     * @param integer $timeout    Timeout for connection
-     * @param boolean $persistent Persitent connection
-     * @return void
-     */
-    public function connect($timeout = 30, $persistent = false)
-    {
-        if (true === $persistent) {
-            $flags = STREAM_CLIENT_CONNECT | STREAM_CLIENT_PERSISTENT;
-        } else {
-            $flags = STREAM_CLIENT_CONNECT;
-        }
+    //create context of socket
+    $this->context = stream_context_create(["ssl" => ["peer_name" => $this->to]]);
 
-        // call stream_socket_client with custom error handler enabled
-        $handler = new ErrorHandler(
-            function ($address, $timeout, $flags) {
-                return stream_socket_client($address, $errno, $errstr, $timeout, $flags);
-            },
-            $this->address,
-            $timeout,
-            $flags
-        );
-        $resource = $handler->execute(__FILE__, __LINE__);
+    // call stream_socket_client with custom error handler enabled
+    $handler = new ErrorHandler(
+      function ($address, $timeout, $flags) {
+        return stream_socket_client($address, $errno, $errstr, $timeout, $flags, $this->context);
+      },
+      $this->address,
+      $timeout,
+      $flags
+    );
+    $resource = $handler->execute(__FILE__, __LINE__);
 
-        stream_set_timeout($resource, $timeout);
-        $this->resource = $resource;
+    stream_set_timeout($resource, $timeout);
+    $this->resource = $resource;
+  }
+
+  /**
+   * Reconnect and optionally use different address.
+   *
+   * @param string $address
+   * @param integer $timeout
+   * @param bool $persistent
+   */
+  public function reconnect($address = null, $timeout = 30, $persistent = false) {
+    $this->close();
+
+    if (null !== $this->address) {
+      $this->address = $address;
     }
 
-    /**
-     * Reconnect and optionally use different address.
-     *
-     * @param string  $address
-     * @param integer $timeout
-     * @param bool    $persistent
-     */
-    public function reconnect($address = null, $timeout = 30, $persistent = false)
-    {
-        $this->close();
+    $this->connect($timeout, $persistent);
+  }
 
-        if (null !== $this->address) {
-            $this->address = $address;
-        }
+  /**
+   * Close stream.
+   *
+   * @return void
+   */
+  public function close() {
+    fclose($this->resource);
+  }
 
-        $this->connect($timeout, $persistent);
+  /**
+   * Set stream blocking mode.
+   *
+   * @param boolean $flag Flag
+   * @return $this
+   */
+  public function setBlocking($flag = true) {
+    stream_set_blocking($this->resource, (int)$flag);
+    return $this;
+  }
+
+  /**
+   * Read from stream.
+   *
+   * @param integer $length Bytes to read
+   * @return string
+   */
+  public function read($length = self::BUFFER_LENGTH) {
+    return fread($this->resource, $length);
+  }
+
+  /**
+   * Write to stream.
+   *
+   * @param string $string String
+   * @param integer $length Limit
+   * @return void
+   */
+  public function write($string, $length = null) {
+    if (null !== $length) {
+      fwrite($this->resource, $string, $length);
+    } else {
+      fwrite($this->resource, $string);
+    }
+  }
+
+  /**
+   * Enable/disable cryptography on stream.
+   *
+   * @param boolean $enable Flag
+   * @param integer $cryptoType One of the STREAM_CRYPTO_METHOD_* constants.
+   * @return void
+   * @throws InvalidArgumentException
+   */
+  public function crypto($enable, $cryptoType = null) {
+    if (false === $enable) {
+      $handler = new ErrorHandler('stream_socket_enable_crypto', $this->resource, false);
+      return $handler->execute(__FILE__, __LINE__);
     }
 
-    /**
-     * Close stream.
-     *
-     * @return void
-     */
-    public function close()
-    {
-        fclose($this->resource);
+    if (null === $cryptoType) {
+      throw new InvalidArgumentException('Second argument is require when enabling crypto an stream');
     }
 
-    /**
-     * Set stream blocking mode.
-     *
-     * @param boolean $flag Flag
-     * @return $this
-     */
-    public function setBlocking($flag = true)
-    {
-        stream_set_blocking($this->resource, (int) $flag);
-        return $this;
-    }
+    return stream_socket_enable_crypto($this->resource, $enable, $cryptoType);
+  }
 
-    /**
-     * Read from stream.
-     *
-     * @param integer $length Bytes to read
-     * @return string
-     */
-    public function read($length = self::BUFFER_LENGTH)
-    {
-        return fread($this->resource, $length);
-    }
+  /**
+   * Get socket stream.
+   *
+   * @return resource
+   */
+  public function getResource() {
+    return $this->resource;
+  }
 
-    /**
-     * Write to stream.
-     *
-     * @param string  $string String
-     * @param integer $length Limit
-     * @return void
-     */
-    public function write($string, $length = null)
-    {
-        if (null !== $length) {
-            fwrite($this->resource, $string, $length);
-        } else {
-            fwrite($this->resource, $string);
-        }
-    }
-
-    /**
-     * Enable/disable cryptography on stream.
-     *
-     * @param boolean $enable     Flag
-     * @param integer $cryptoType One of the STREAM_CRYPTO_METHOD_* constants.
-     * @return void
-     * @throws InvalidArgumentException
-     */
-    public function crypto($enable, $cryptoType = null)
-    {
-        if (false === $enable) {
-            $handler = new ErrorHandler('stream_socket_enable_crypto', $this->resource, false);
-            return $handler->execute(__FILE__, __LINE__);
-        }
-
-        if (null === $cryptoType) {
-            throw new InvalidArgumentException('Second argument is require when enabling crypto an stream');
-        }
-
-        return stream_socket_enable_crypto($this->resource, $enable, $cryptoType);
-    }
-
-    /**
-     * Get socket stream.
-     *
-     * @return resource
-     */
-    public function getResource()
-    {
-        return $this->resource;
-    }
-
-    /**
-     * Return address.
-     *
-     * @return string
-     */
-    public function getAddress()
-    {
-        return $this->address;
-    }
+  /**
+   * Return address.
+   *
+   * @return string
+   */
+  public function getAddress() {
+    return $this->address;
+  }
 }

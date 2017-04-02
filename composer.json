@@ -10,6 +10,11 @@
             "email": "f.grutschus@lubyte.de",
             "homepage": "http://www.lubyte.de/",
             "role": "developer"
+        }, {
+            "name": "Chizhov Nikolay",
+            "email": "nchizhov@inok.ru",
+            "homepage": "http://www.inok.ru/",
+            "role": "System Administrator"
         }
     ],
     "autoload": {
